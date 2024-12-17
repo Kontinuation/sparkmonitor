@@ -24,7 +24,6 @@ export default class JupyterLabSparkMonitor {
     private notebookPanel: NotebookPanel,
     private notebookStore: NotebookStore
   ) {
-    this.createCellReactElements();
     this.currentCellTracker = new CurrentCellTracker(notebookPanel);
     this.kernel = (notebookPanel as any).session
       ? (this.notebookPanel as any).session.kernel
@@ -45,48 +44,46 @@ export default class JupyterLabSparkMonitor {
     this.notebookPanel.content.model?.cells.changed.connect((_, data) => {
       if (data.type === 'remove') {
         data.oldValues.forEach(cell => {
-          notebookStore.onCellRemoved(cell.id);
+          if (cell !== undefined) {
+            notebookStore.onCellRemoved(cell.id);
+          }
         });
       }
     });
   }
 
-  createCellReactElements() {
-    const createElementIfNotExists = (cellModel: ICellModel) => {
-      if (cellModel.type === 'code') {
-        const codeCell = this.notebookPanel.content.widgets.find(
-          widget => widget.model === cellModel
+  /** Remember which cells have the spark monitor widget created. */
+  cellWidgetMap: { [cellId: string]: boolean } = {};
+
+  createElementIfNotExists(cellModel: ICellModel) {
+    if (this.cellWidgetMap[cellModel.id] === true) {
+      return;
+    }
+    if (cellModel.type === 'code') {
+      const codeCell = this.notebookPanel.content.widgets.find(
+        widget => widget.model === cellModel
+      );
+      if (codeCell && !codeCell.node.querySelector('.sparkMonitorCellRoot')) {
+        const widget = ReactWidget.create(
+          React.createElement(CellWidget, {
+            notebookId: this.notebookPanel.id,
+            cellId: cellModel.id
+          })
         );
-        if (codeCell && !codeCell.node.querySelector('.sparkMonitorCellRoot')) {
-          const widget = ReactWidget.create(
-            React.createElement(CellWidget, {
-              notebookId: this.notebookPanel.id,
-              cellId: cellModel.id
-            })
-          );
-          widget.addClass('spark-monitor-cell-widget');
+        widget.addClass('spark-monitor-cell-widget');
 
-          (codeCell.layout as PanelLayout).insertWidget(
-            2, // Insert the element below the input area based on position/index
-            widget
-          );
-          codeCell.update();
-        }
+        // Insert the widget above the output wrapper based on position/index.
+        // If there is no output wrapper found, insert it using the default index.
+        const outputWrapperIndex = (codeCell.layout as PanelLayout).widgets.findIndex(
+          widget => widget.hasClass('jp-Cell-outputWrapper'));
+        const insertIndex = outputWrapperIndex > 0? outputWrapperIndex - 1: 2;
+        (codeCell.layout as PanelLayout).insertWidget(
+          insertIndex,
+          widget
+        );
+        codeCell.update();
+        this.cellWidgetMap[cellModel.id] = true;
       }
-    };
-
-    const cells = this.notebookPanel.context.model.cells;
-
-    // Ensure new cells created have a monitoring display
-    cells.changed.connect((cells, changed) => {
-      for (let i = 0; i < cells.length; i += 1) {
-        createElementIfNotExists(cells.get(i));
-      }
-    });
-
-    // Do it the first time
-    for (let i = 0; i < cells.length; i += 1) {
-      createElementIfNotExists(cells.get(i));
     }
   }
 
@@ -122,6 +119,7 @@ export default class JupyterLabSparkMonitor {
       console.warn('SparkMonitor: Job started with no running cell.');
       return;
     }
+    this.createElementIfNotExists(cell.model);
     // See if we have a new execution. If it's new (a cell has been run again) we need to clear the cell monitor
     const newExecution =
       this.currentCellTracker.getNumCellsExecuted() >
@@ -140,6 +138,7 @@ export default class JupyterLabSparkMonitor {
       console.warn('SparkMonitor: Stage started with no running cell.');
       return;
     }
+    this.createElementIfNotExists(cell.model);
     this.notebookStore.onSparkStageSubmitted(cell.model.id, data);
   }
 

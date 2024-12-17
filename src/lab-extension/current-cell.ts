@@ -41,6 +41,9 @@ export default class CurrentCellTracker {
   }
 
   private deregisterMetadataChanges(cellModel: ICellModel) {
+    if (cellModel == undefined) {
+      return;
+    }
     const fn = this.cellSlotMap[cellModel.id];
     if (fn) {
       cellModel.metadataChanged.disconnect(fn);
